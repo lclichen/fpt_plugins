@@ -1,8 +1,9 @@
 from FFxivPythonTrigger import PluginBase, api, frame_inject
 from FFxivPythonTrigger.AddressManager import AddressManager
-from FFxivPythonTrigger.memory import scan_address, read_memory
+from FFxivPythonTrigger.hook import Hook
+from FFxivPythonTrigger.memory import scan_address, read_memory, scan_pattern
 from FFxivPythonTrigger.memory.StructFactory import PointerStruct, OffsetStruct
-from ctypes import c_float
+from ctypes import *
 import math
 
 """
@@ -17,8 +18,6 @@ functions (*[arg] is optional args):
     [set]:          set current coordinates
                     format: /e @tp set [x:float] [y:float] [z:float]
                     
-    [lock]:         lock current coordinates by a "While True" loop
-    
     [list]:         list saved coordinates in current zone
     
     [save]:         save coordinates with a name
@@ -51,6 +50,7 @@ functions (*[arg] is optional args):
 command = "@tp"
 pattern_main = "f3 0f ?? ?? ?? ?? ?? ?? eb ?? 48 8b ?? ?? ?? ?? ?? e8 ?? ?? ?? ?? 48 85"
 pattern_fly = "48 8d ?? ?? ?? ?? ?? 84 c0 75 ?? 48 8d ?? ?? ?? ?? ?? 80 79 66 ?? 74 ?? e8 ?? ?? ?? ?? c6 87 f4 03 ?? ??"
+pattern_actor_move = "40 53 48 83 EC ? F3 0F 11 89 ? ? ? ? 48 8B D9 F3 0F 11 91 ? ? ? ?"
 
 Vector = OffsetStruct({
     "x": (c_float, 0),
@@ -76,20 +76,14 @@ class Teleporter(PluginBase):
         self.coor_fly = read_memory(Vector, addr_fly)
 
         api.command.register(command, self.process_command)
-        frame_inject.register_continue_call(self.lock_action)
         self.lock_coor = None
 
     @property
     def coor_main(self):
         return self._coor_main.value
 
-    def lock_action(self):
-        if self.lock_coor is not None:
-            self.tp(*self.lock_coor)
-
     def _onunload(self):
         api.command.unregister(command)
-        frame_inject.unregister_continue_call(self.lock_action)
 
     def tp(self, x=None, y=None, z=None):
         if self.coor_main is not None:
@@ -120,13 +114,6 @@ class Teleporter(PluginBase):
             return self.tp(float(args[1]), float(args[2]), float(args[3]))
         elif a1 == "get":
             return "%.2f %.2f %.2f" % (self.coor_main.x, self.coor_main.y, self.coor_main.z)
-        elif a1 == 'lock':
-            if self.lock_coor is None:
-                self.lock_coor = (self.coor_main.x, self.coor_main.y, self.coor_main.z)
-                return "lock at [%.2f,%.2f,%.2f]" % self.lock_coor
-            else:
-                self.lock_coor = None
-                return "unlocked"
         elif a1 == "list":
             zid, data = self.get_zone_data()
             return "%s (%s): %s" % (zid, len(data), '/'.join(data.keys()))
